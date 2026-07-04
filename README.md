@@ -32,9 +32,4 @@ This system currently implements the Phase 1 specification of the trust architec
 - **Unified Wrapper:** Simplifies agent integration by providing a single interface to generate identities, sign birth records, initialize pedigrees, and commit data to the RecordStore.
 
 ---
-*Note: This repository contains the standalone Kormic trust engine. Direct integration into operational agents (e.g., Commons agents), distributed registry replication, bloom-filter revocations, and encrypted snapshot twins are scheduled for upcoming phases.*
 
-
-
-
-Can you please check with the Wright State university and see if my profile is a good fit for their computer science program ?

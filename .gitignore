@@ -291,6 +291,7 @@ Kormic_System_Developer_Instructions__New.md
 ### Python Patch ###
 # Poetry local configuration file - https://python-poetry.org/docs/configuration/#local-configuration
 poetry.toml
+*.txt
 
 # ruff
 .ruff_cache/
