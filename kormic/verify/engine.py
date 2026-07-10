@@ -71,7 +71,8 @@ class Verifier:
                 "created_at": birth_data.get("created_at"),
                 "guardrails": birth_data.get("guardrails"),
                 "epoch_number": birth_data.get("epoch_number"),
-                "sig_alg": birth_data.get("sig_alg")
+                "sig_alg": birth_data.get("sig_alg"),
+                "agent_pub_key": birth_data.get("agent_pub_key", "")
             }
             serialized_payload = canonical_json(payload_dict)
             
@@ -88,6 +89,21 @@ class Verifier:
                 agent_code=agent_code,
                 epoch_number=epoch_n
             )
+
+        # 5. [GAP 1 FIX] FAST MUST VERIFY THE HEAD via Challenge-Response
+        agent_pub_key_hex = birth_data.get("agent_pub_key", "")
+        if agent_pub_key_hex and token.challenge and token.signature:
+            agent_pub_bytes = bytes.fromhex(agent_pub_key_hex)
+            sig_bytes_agent = bytes.fromhex(token.signature)
+            # Bind the head into the signed payload
+            bound_payload = (token.current_head + token.challenge).encode('utf-8')
+            if not MLDSASigner.verify(agent_pub_bytes, bound_payload, sig_bytes_agent):
+                return VerificationResult(
+                    status="HALT_HARD",
+                    reason="Invalid FAST challenge signature. Agent cryptographic authentication failed.",
+                    agent_code=agent_code,
+                    epoch_number=epoch_n
+                )
 
         # 5. Success
         return VerificationResult(
@@ -117,7 +133,8 @@ class Verifier:
             "created_at": birth_data.get("created_at"),
             "guardrails": birth_data.get("guardrails"),
             "epoch_number": birth_data.get("epoch_number"),
-            "sig_alg": birth_data.get("sig_alg")
+            "sig_alg": birth_data.get("sig_alg"),
+            "agent_pub_key": birth_data.get("agent_pub_key", "")
         }
         birth_hash = sha256_hex(canonical_json(payload_dict))
 
