@@ -22,6 +22,9 @@ class CredentialRoot:
         if verify_res.status != "PASS":
             return {"granted": False, "reason": f"Verification failed: {verify_res.reason}"}
             
+        if not token.birth_record.get("agent_pub_key"):
+            return {"granted": False, "reason": "Verification failed: Birth record carries no agent_pub_key. Keyless birth refused."}
+            
         manifest = token.birth_record.get("guardrails", {})
         
         # 2. Scope Gate
@@ -42,3 +45,4 @@ class CredentialRoot:
             "token": f"scoped:{requested_scope}:{os.urandom(8).hex()}", 
             "ttl_sec": 300
         }
+    
