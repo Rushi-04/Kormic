@@ -15,6 +15,7 @@ class ProofToken:
     authority_reference: str          # Contextual signing domain details
     challenge: str = ""               # Optional, used for Challenge-Response in Phase 3
     signature: str = ""               # Hex signature of the challenge
+    parent_birth_record: Optional[Dict[str, Any]] = None # Serialized parent BAIN if this is a DAIN
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -25,7 +26,8 @@ class ProofToken:
             "freshness_timestamp": self.freshness_timestamp,
             "authority_reference": self.authority_reference,
             "challenge": self.challenge,
-            "signature": self.signature
+            "signature": self.signature,
+            "parent_birth_record": self.parent_birth_record
         }
 
 @dataclass(frozen=True)
@@ -48,3 +50,4 @@ class VerificationResult:
     reason: str
     agent_code: str
     epoch_number: Optional[int] = None
+    verified_scope: str = "full"      # 'full' | 'build'

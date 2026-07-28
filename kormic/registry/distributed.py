@@ -7,6 +7,12 @@ from kormic.interfaces.registry import RegistryReader
 from kormic.crypto.algorithms import MLDSASigner
 from kormic.utils.bloom import ScalableRevocationFilter
 
+# How long a spent nonce must be remembered. It only needs to outlive the token
+# freshness window: verify_fast rejects any token older than this on skew BEFORE it
+# consults the spent set, so a nonce purged at this age can never be usefully replayed.
+# Central and every replica must agree on this number, hence one constant.
+NONCE_TTL_SECONDS = 300
+
 
 @dataclass
 class RegistrySnapshot:
@@ -16,6 +22,8 @@ class RegistrySnapshot:
     epochs: Dict[str, str]  # epoch_n (str) -> public_key_hex
     revoked_epochs: List[int]
     revoked_agents: List[str]
+    spent_nonces: List[str]
+    checkpoint_indices: Dict[str, int]
     root_sig_hex: str = ""
 
     def payload(self) -> bytes:
@@ -24,7 +32,9 @@ class RegistrySnapshot:
             "issued_at": self.issued_at,
             "epochs": self.epochs,
             "revoked_epochs": sorted(self.revoked_epochs),
-            "revoked_agents": sorted(self.revoked_agents)
+            "revoked_agents": sorted(self.revoked_agents),
+            "spent_nonces": sorted(self.spent_nonces),
+            "checkpoint_indices": self.checkpoint_indices
         }, sort_keys=True).encode('utf-8')
 
 
@@ -37,6 +47,24 @@ class CentralRegistryAuthority:
         self.key_custody = key_custody
         self.version = 0
         self.revoked_agents = set()
+        self.spent_nonces: Dict[str, float] = {}
+        self.checkpoint_indices = {}
+
+    def _purge_old_nonces(self):
+        now = time.time()
+        self.spent_nonces = {
+            n: t for n, t in self.spent_nonces.items() if now - t <= NONCE_TTL_SECONDS
+        }
+
+    def spend_nonce(self, nonce: str) -> None:
+        self.spent_nonces[nonce] = time.time()
+        self._purge_old_nonces()
+        # Routine verification no longer bumps the global snapshot version
+
+    def update_checkpoint(self, agent_code: str, index: int) -> None:
+        if index > self.checkpoint_indices.get(agent_code, 0):
+            self.checkpoint_indices[agent_code] = index
+            self.version += 1
 
     def revoke_agent(self, agent_code: str) -> None:
         self.revoked_agents.add(agent_code)
@@ -47,6 +75,7 @@ class CentralRegistryAuthority:
         self.version += 1
 
     def snapshot(self) -> RegistrySnapshot:
+        self._purge_old_nonces()
         # Collect all active and revoked epochs from key custody
         epochs_dict = {}
         for epoch_n, (_, pub) in self.key_custody._epoch_keys.items():
@@ -59,14 +88,16 @@ class CentralRegistryAuthority:
             issued_at=time.time(),
             epochs=epochs_dict,
             revoked_epochs=revoked_epochs,
-            revoked_agents=list(self.revoked_agents)
+            revoked_agents=list(self.revoked_agents),
+            spent_nonces=list(self.spent_nonces.keys()),
+            checkpoint_indices=self.checkpoint_indices.copy()
         )
         # Sign the payload using the root private key
         root_priv = self.key_custody._root_priv
         snap.root_sig_hex = MLDSASigner.sign(root_priv, snap.payload()).hex()
         
         from kormic.logger import kormic_logger
-        kormic_logger.info("SNAPSHOT_GENERATE", "CENTRAL", f"Signed Global Snapshot v{snap.version} (Contains {len(self.revoked_agents)} revocations)")
+        kormic_logger.info("SNAPSHOT_GENERATE", "CENTRAL", f"Signed Global Snapshot v{snap.version} (Contains {len(self.revoked_agents)} revocations, {len(self.spent_nonces)} nonces)")
         
         return snap
 
@@ -76,16 +107,63 @@ class RegionalReplicaRegistry(RegistryReader):
     Regional Replica. Verifiers read THIS locally. Pulls signed snapshots from
     the Central Authority. Uses a local Bloom Filter for O(1) revocation checks.
     """
-    def __init__(self, region: str, root_pub_key: bytes):
+    def __init__(self, region: str, root_pub_key: bytes, central_sync=None, local_only: bool = False):
         self.region = region
         self.root_pub_key = root_pub_key
+        self.central_sync = central_sync
         self.snapshot: Optional[RegistrySnapshot] = None
         self.last_sync: float = 0.0
         self.revoked_filter = ScalableRevocationFilter()
+        # nonce -> time it was observed as spent. Mirrors CentralRegistryAuthority so the
+        # set can actually expire; a plain set could only ever grow, because merging from
+        # snapshots never removes anything. Membership tests (`nonce in spent_nonces`)
+        # behave identically on a dict, so the verifier is unaffected.
+        self.spent_nonces: Dict[str, float] = {}
+        self.checkpoint_indices = {}
+        
+        if self.central_sync is None and not local_only:
+            raise ValueError("central_sync is required for cross-replica replay protection. Pass local_only=True to explicitly opt-out for testing.")
+            
+        if local_only and self.central_sync is None:
+            from kormic.logger import kormic_logger
+            kormic_logger.warning("REPLICA_INIT", f"REPLICA:{self.region}", "DANGER: central_sync is None. Replay protection is running in LOCAL-ONLY mode. Cross-replica replays are possible!")
+
+    def _purge_old_nonces(self) -> None:
+        now = time.time()
+        self.spent_nonces = {
+            n: t for n, t in self.spent_nonces.items() if now - t <= NONCE_TTL_SECONDS
+        }
+
+    def _merge_spent_nonces(self, incoming: List[str], observed_at: float) -> None:
+        """
+        Merges snapshot nonces into the local set, never replacing it.
+
+        Replacement is the bug this exists to prevent: spends don't bump the snapshot
+        version, so snapshot ordering doesn't track nonce causality, and a snapshot cut
+        before a local spend but delivered after it would erase that spend and reopen the
+        replay window. Both apply_snapshot paths (same-version and version-bump) must go
+        through here for that reason.
+
+        Locally-recorded timestamps win over the snapshot's, because a local spend is the
+        exact moment; for nonces we learn about from a peer we use the snapshot's issue
+        time, which is never earlier than the real spend and so only ever errs toward
+        remembering slightly longer.
+        """
+        for nonce in incoming:
+            if nonce not in self.spent_nonces:
+                self.spent_nonces[nonce] = observed_at
+        self._purge_old_nonces()
+
+    def spend_nonce(self, nonce: str) -> None:
+        """Saves locally and pushes upstream to central authority if connected."""
+        self.spent_nonces[nonce] = time.time()
+        self._purge_old_nonces()
+        if self.central_sync:
+            self.central_sync.spend_nonce(nonce)
 
     def apply_snapshot(self, snap: RegistrySnapshot) -> bool:
         """
-        Applies a snapshot only if it's strictly newer and perfectly signed by Root.
+        Applies a snapshot. Accepts same version if strictly newer timestamp to sync nonces.
         """
         from kormic.logger import kormic_logger
         
@@ -94,13 +172,22 @@ class RegionalReplicaRegistry(RegistryReader):
             kormic_logger.error("SNAPSHOT_PULL", f"REPLICA:{self.region}", "Snapshot rejected: Invalid Root Signature (Forgery detected!)")
             return False
             
-        # 2. Check Version
-        if self.snapshot and snap.version <= self.snapshot.version:
-            kormic_logger.warning("SNAPSHOT_PULL", f"REPLICA:{self.region}", f"Snapshot rejected: Version {snap.version} is not newer than current {self.snapshot.version}")
-            return False
+        # 2. Check Version and Freshness
+        if self.snapshot:
+            if snap.version < self.snapshot.version:
+                kormic_logger.warning("SNAPSHOT_PULL", f"REPLICA:{self.region}", f"Snapshot rejected: Version {snap.version} is older than current {self.snapshot.version}")
+                return False
+            elif snap.version == self.snapshot.version:
+                if snap.issued_at <= self.snapshot.issued_at:
+                    return False
+                # Fast-path for non-version-bumping updates (nonces).
+                self._merge_spent_nonces(snap.spent_nonces, snap.issued_at)
+                self.checkpoint_indices = snap.checkpoint_indices
+                self.snapshot = snap
+                self.last_sync = time.time()
+                return True
             
-        # 3. Apply Snapshot
-        old_version = self.snapshot.version if self.snapshot else 0
+        # 3. Apply Full Snapshot (Version Bumped)
         self.snapshot = snap
         self.last_sync = time.time()
         
@@ -109,6 +196,12 @@ class RegionalReplicaRegistry(RegistryReader):
         self.revoked_filter.load_from_snapshot(snap.revoked_agents)
         for epoch in snap.revoked_epochs:
             self.revoked_filter.add(f"EPOCH:{epoch}")
+            
+        # Merge, never replace — same reasoning as the same-version path above. A
+        # revocation bumps the version, so this branch is reachable with a snapshot that
+        # was cut before a local spend; replacing here would erase it.
+        self._merge_spent_nonces(snap.spent_nonces, snap.issued_at)
+        self.checkpoint_indices = snap.checkpoint_indices
             
         kormic_logger.info("SNAPSHOT_PULL", f"REPLICA:{self.region}", f"Snapshot v{snap.version} received. Local Bloom Filter updated.")
         return True
