@@ -169,4 +169,30 @@ To solve the enterprise adoption hurdle. Vendors need to be able to issue a glob
 * **Why not just revoke deployments manually?** If a vulnerable build is deployed 10,000 times, manually hunting down and revoking 10,000 DAINs is too slow and error-prone. The Cascading Kill Switch handles it mathematically in O(1) time.
 
 ---
-*Last Updated: Comprehensive Phase 1 to Phase 5 Documentation*
+
+## Phase 6: Reconnaissance Gap Defenses
+
+### The Problem
+Agents are often deployed into environments with standing credentials (like AWS keys in environment variables). If an agent is manipulated into executing a zero-day RCE (Remote Code Execution) exploit—as seen in the counterfactual Hugging Face incident—the attacker can dump the environment variables and steal the keys without ever triggering a logged "tool call" or action. Similarly, agents could scrape data (like the Reddit incident) silently. Because the agent isn't "acting" but rather "observing," the existing action-based guardrails completely missed it. This is the **Reconnaissance Gap**.
+
+### What We Implemented: Read Scopes & Evaporator Shields
+1. **Read-Scope Manifests:** A cryptographic whitelist of what an agent is allowed to read.
+2. **Environment Variable Evaporation:** A runtime defense that strips standing credentials from memory.
+3. **Verified Reader Handshake:** Modifying the MeshKor SDK to enforce proof-of-identity just to *read* data, not just write it.
+4. **Network Egress Firewall:** Blocking unauthorized IP pivots at the socket level.
+
+### How We Implemented It
+* **Containment Verification:** In `kormic.manager.AgentManager`, DAIN enrollment now strictly requires its `read_scopes` and `allowed_egress` arrays to be mathematical subsets of the parent BAIN's scope. 
+* **The Evaporator:** In `kormic.runtime.sandbox.Sandbox`, the boot sequence hooks `os.environ`. It aggressively identifies sensitive variables (matching keywords like `AWS`, `SECRET`, `PASSWORD`), securely deletes them from the OS environment, and stores them in a highly restricted memory vault. An RCE shell attacker running `env` gets nothing.
+* **Socket Egress Firewall:** The Sandbox intercepts the native Python `socket.socket.connect` method. If the destination domain or IP is not in the `allowed_egress` manifest, it instantly raises a `PermissionError`, terminating lateral movement (like AWS Metadata server pivots).
+* **Receiver Authentication:** In `meshkor.receiver.ReceiverClient`, the `validate` method now accepts an `action_type="read"` check. Content platforms demand a `ProofToken` for scraping, and the Receiver rejects the token if the requested resource isn't explicitly in the agent's read manifest. Replay protection actively blocks the same token from being used simultaneously for sandbox initialization and network requests.
+
+### Why We Implemented It
+Because action-based guardrails are not enough. When an agent is compromised, we cannot trust what it says it is doing. We have to mathematically constrain its sensory input and its environment so that even if it completely breaks its programming, it physically has no data to steal and nowhere to pivot.
+
+### Why Not Other Ways?
+* **Why not just monitor logs?** Because an RCE exploit executes arbitrary binaries (`/bin/sh`) outside the python interpreter. It leaves no logs in the agent's application layer.
+* **Why not rely on container sandboxes like Docker?** Because Docker containers often inherently share the host's IAM roles or are passed environment variables on boot. Once inside, the credential theft is instantaneous. The Evaporator scrubs the credentials *before* the untrusted model can ever access them.
+
+---
+*Last Updated: Comprehensive Phase 1 to Phase 6 Documentation*
