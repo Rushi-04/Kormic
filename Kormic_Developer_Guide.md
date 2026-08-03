@@ -18,7 +18,7 @@ We created a cryptographic **Birth Record** for every agent. The agent's ID look
 `KMC.CMP.agent_name.0001.<real_id_hash>`
 
 ### How We Implemented It
-When an agent is registered via the `AgentManager`, it is assigned a `Pedigree`. This pedigree contains the Birth Record. The Central Authority mathematically signs this birth record using **Post-Quantum ML-DSA-44 cryptography** to ensure it can never be forged, even by future supercomputers.
+When an agent is registered via the `AgentManager`, it is assigned a `Pedigree`. This pedigree contains the Birth Record. For future-proofing (Crypto-Agility), the payload is self-describing—it explicitly seals both the algorithm (`sig_alg`) and format version (`fmt_ver`) directly into the record. The Central Authority mathematically signs this birth record using **Post-Quantum ML-DSA-44 cryptography** to ensure it can never be forged, even by future supercomputers.
 
 ### Why We Implemented It
 To legally and cryptographically bind an AI agent to a real-world entity (like a corporation's DUNS number). If the agent goes rogue, we know exactly who is responsible.
@@ -159,7 +159,7 @@ If a vendor builds an AI agent and deploys it to two different hospitals, using 
 * **Salt Persistence:** The `SQLiteRecordStore` now features a dedicated `salts` table that physically segregates the private hashing salt from the public Pedigree payload.
 * **Artifact Binding & Vendor Enrollment Subsystem:** When registering a BAIN, the system mathematically verifies a vendor's signature over the code's true digest (`artifact_digest`). Furthermore, the system implements a strict, globally verified **Vendor Enrollment Process**:
   * **Bind-Once Namespaces:** A vendor's public key must be securely enrolled in the distributed registry before they are allowed to issue BAINs. We enforce a strict `Bind-Once` invariant—if a namespace (e.g., "Acme") is ever enrolled, the Central Authority mathematically refuses any attempt to overwrite or rebind it, completely shutting down namespace squatting via silent re-enrollment.
-  * **Proof of Possession:** During enrollment, the vendor must prove they mathematically hold the private key by signing a fresh ML-DSA challenge nonce issued by the Central Authority. 
+  * **Proof of Possession (Replay-Protected):** During enrollment, the vendor must prove they mathematically hold the private key by signing a payload that strictly binds a fresh ML-DSA challenge nonce to their requested name (`f"{nonce}:{name}"`). The Central Authority maintains a strict `spent_nonces` ledger, instantly rejecting any replayed challenge. This completely eliminates the threat of a "Possession-Proof Replay" where a hacker steals a legitimate enrollment token to squat a different namespace.
   * **Root-Signed Replication:** Vendor identities are no longer kept in a local database utility. They are cryptographically packaged into the global `RegistrySnapshot`. Replicas mathematically verify the root signature of the snapshot to establish identity consistency worldwide. If a vendor is not in the signed snapshot, the system "fails closed" and refuses to issue a BAIN.
 ### Why We Implemented It
 To solve the enterprise adoption hurdle. Vendors need to be able to issue a global recall if their software is vulnerable (BAIN Revocation), but Hospitals need mathematical proof that their specific instance data cannot be seen or correlated by the vendor (Storage Isolation & Salts).
