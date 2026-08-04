@@ -183,8 +183,8 @@ Agents are often deployed into environments with standing credentials (like AWS 
 
 ### How We Implemented It
 * **Containment Verification:** In `kormic.manager.AgentManager`, DAIN enrollment now strictly requires its `read_scopes` and `allowed_egress` arrays to be mathematical subsets of the parent BAIN's scope. 
-* **The Evaporator:** In `kormic.runtime.sandbox.Sandbox`, the boot sequence hooks `os.environ`. It aggressively identifies sensitive variables (matching keywords like `AWS`, `SECRET`, `PASSWORD`), securely deletes them from the OS environment, and stores them in a highly restricted memory vault. An RCE shell attacker running `env` gets nothing.
-* **Socket Egress Firewall:** The Sandbox intercepts the native Python `socket.socket.connect` method. If the destination domain or IP is not in the `allowed_egress` manifest, it instantly raises a `PermissionError`, terminating lateral movement (like AWS Metadata server pivots).
+* **The Session-Scoped Evaporator:** In `kormic.runtime.sandbox.Sandbox`, the Evaporator isolates standing credentials into a session-only memory vault. Rather than destructively wiping the host's global `os.environ` (which would break multi-tenant or concurrent operations), it yields a scrubbed environment dictionary meant for injecting into an isolated subprocess or sidecar. 
+* **Attested Egress Firewall:** The Sandbox explicitly declares and attests the authorized `allowed_egress` target scope for the session. MeshKor acts as the policy layer; true network enforcement pairs with an out-of-process network control (like an infrastructure sidecar), preventing concurrent agents from clobbering each other's network rules in a shared Python interpreter.
 * **Receiver Authentication:** In `meshkor.receiver.ReceiverClient`, the `validate` method now accepts an `action_type="read"` check. Content platforms demand a `ProofToken` for scraping, and the Receiver rejects the token if the requested resource isn't explicitly in the agent's read manifest. Replay protection actively blocks the same token from being used simultaneously for sandbox initialization and network requests.
 
 ### Why We Implemented It
