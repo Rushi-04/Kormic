@@ -18,7 +18,7 @@ We created a cryptographic **Birth Record** for every agent. The agent's ID look
 `KMC.CMP.agent_name.0001.<real_id_hash>`
 
 ### How We Implemented It
-When an agent is registered via the `AgentManager`, it is assigned a `Pedigree`. This pedigree contains the Birth Record. For future-proofing (Crypto-Agility), the payload is self-describing—it explicitly seals both the algorithm (`sig_alg`) and format version (`fmt_ver`) directly into the record. The Central Authority mathematically signs this birth record using **Post-Quantum ML-DSA-44 cryptography** to ensure it can never be forged, even by future supercomputers.
+When an agent is registered via the `AgentManager`, it is assigned a `Pedigree`. This pedigree contains the Birth Record. For future-proofing (Crypto-Agility), the payload is strictly self-describing—it explicitly seals both the algorithm (`sig_alg`) and format version (`fmt_ver`) directly into the record. The Central Authority mathematically signs this birth record using **Post-Quantum ML-DSA-87 cryptography (NIST Level 5)** as the default algorithm. The verification engine is algorithm-parametric, dynamically dispatching validation logic based on the explicitly declared and allowlisted `sig_alg`, completely eliminating the rigid hardcoding of older signatures.
 
 ### Why We Implemented It
 To legally and cryptographically bind an AI agent to a real-world entity (like a corporation's DUNS number). If the agent goes rogue, we know exactly who is responsible.
