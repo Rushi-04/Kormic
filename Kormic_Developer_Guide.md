@@ -18,7 +18,7 @@ We created a cryptographic **Birth Record** for every agent. The agent's ID look
 `KMC.CMP.agent_name.0001.<real_id_hash>`
 
 ### How We Implemented It
-When an agent is registered via the `AgentManager`, it is assigned a `Pedigree`. This pedigree contains the Birth Record. For future-proofing (Crypto-Agility), the payload is strictly self-describing—it explicitly seals both the algorithm (`sig_alg`) and format version (`fmt_ver`) directly into the record. The Central Authority mathematically signs this birth record using **Post-Quantum ML-DSA-87 cryptography (NIST Level 5)** as the default algorithm. The verification engine is algorithm-parametric, dynamically dispatching validation logic based on the explicitly declared and allowlisted `sig_alg`, completely eliminating the rigid hardcoding of older signatures.
+When an agent is registered via the `AgentManager`, it is assigned a `Pedigree`. This pedigree contains the Birth Record. For future-proofing (Crypto-Agility), the payload is strictly self-describing—it explicitly seals both the signature algorithm (`sig_alg`), hash algorithm (`hash_alg`), and format version (`fmt_ver`) directly into the record. The Central Authority mathematically signs this birth record using **Post-Quantum ML-DSA-87 cryptography (NIST Level 5)** as the default algorithm. The verification engine is algorithm-parametric, dynamically dispatching validation logic based on the explicitly declared and allowlisted `sig_alg` and `hash_alg`, completely eliminating the rigid hardcoding of older signatures and hashes.
 
 ### Why We Implemented It
 To legally and cryptographically bind an AI agent to a real-world entity (like a corporation's DUNS number). If the agent goes rogue, we know exactly who is responsible.
@@ -38,7 +38,7 @@ Agents perform thousands of actions. If an agent gets hacked, the hacker's first
 A cryptographically chained history log, mathematically summarized into a single 64-character hash called the `running_head`.
 
 ### How We Implemented It
-Every time the agent performs an action (e.g., "Sent email to Bob"), we hash that action *together with the hash of the previous action*. This creates an unbroken chain. To verify the agent, Kormic uses **FAST Verification (O(1))** which simply checks if the current `running_head` matches the expected state, without needing to read the whole history.
+Every time the agent performs an action (e.g., "Sent email to Bob"), we hash that action *together with the hash of the previous action*. This creates an unbroken chain. The hash function used for the entire chain is strictly dictated by the `hash_alg` parameter physically sealed in the agent's birth record (defaulting to `SHA-256`), ensuring that the system can gracefully migrate to newer hashes like `SHA3-256` without breaking verification logic. To verify the agent, Kormic uses **FAST Verification (O(1))** which simply checks if the current `running_head` matches the expected state, without needing to read the whole history.
 
 ### Why We Implemented It
 To guarantee that no action can be secretly deleted or altered. If a hacker deletes a log from the middle of the chain, the final `running_head` hash will completely change, instantly exposing the tampering.
