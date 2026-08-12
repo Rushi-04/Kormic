@@ -56,3 +56,35 @@ def test_software_key_custody_dev_guard_allows_in_development(monkeypatch):
     monkeypatch.setenv("KORMIC_DEPLOYMENT_MODE", "development")
     kc2 = SoftwareKeyCustody()
     assert kc2 is not None
+
+def test_no_private_key_access_outside_crypto():
+    """
+    Ensures that private key attributes (_root_priv, _epoch_keys, _revoked_epochs, _epoch_certificates)
+    are never accessed by any module outside of kormic.crypto.
+    """
+    repo_root = Path(__file__).parent.parent
+    paths_to_check = [
+        repo_root / "kormic",
+        repo_root / "meshkor"
+    ]
+    
+    files_to_check = []
+    for path in paths_to_check:
+        if path.is_dir():
+            files_to_check.extend(path.rglob("*.py"))
+            
+    private_attrs = {"_root_priv", "_epoch_keys", "_revoked_epochs", "_epoch_certificates"}
+    
+    for filepath in files_to_check:
+        # Exclude the actual custody implementation from this check
+        if "crypto" in filepath.parts and "software.py" in filepath.name:
+            continue
+            
+        with open(filepath, "r", encoding="utf-8") as f:
+            content = f.read()
+            
+        tree = ast.parse(content, filename=str(filepath))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Attribute):
+                if node.attr in private_attrs:
+                    pytest.fail(f"Private key attribute '{node.attr}' accessed in {filepath}")
