@@ -41,7 +41,7 @@ def run_demo():
 
     # Agent Setup
     m_agent = make_manifest(["tool1"], ["endpoint1"], ["scope1"], "test")
-    agent_priv, agent_pub = MLDSASigner.generate_keypair()
+    agent_priv, agent_pub = MLDSASigner.generate_keypair('ML-DSA-87')
     ain, _ = manager.register_new_agent("CMP", "secbot", "0001", "sec", m_agent, agent_pub_key=agent_pub.hex())
     replica.apply_snapshot(central.snapshot())
 
@@ -55,8 +55,14 @@ def run_demo():
         ped_dict = store.get(ain)
         ped = Pedigree.from_dict(ped_dict)
         challenge = verifier.generate_challenge()
-        payload = (ped.running_head + challenge).encode('utf-8')
-        signature = MLDSASigner.sign(agent_priv, payload).hex()
+        import json
+        payload = json.dumps({
+            "current_head": ped.running_head,
+            "challenge": challenge,
+            "sig_alg": 'ML-DSA-87',
+            "fmt_ver": 1
+        }, sort_keys=True).encode('utf-8')
+        signature = MLDSASigner.sign('ML-DSA-87', agent_priv, payload).hex()
         
         token = ProofToken(
             agent_code=ain,
@@ -66,7 +72,9 @@ def run_demo():
             freshness_timestamp=time.time(),
             authority_reference="test",
             challenge=challenge,
-            signature=signature
+            signature=signature,
+            sig_alg='ML-DSA-87',
+            fmt_ver=1
         )
 
         print("  -> First Verification (Genuine Agent):")
@@ -94,7 +102,9 @@ def run_demo():
             freshness_timestamp=time.time(),
             authority_reference="test",
             challenge=challenge2,
-            signature=""  # Attacker stripped the signature!
+            signature="",  # Attacker stripped the signature!
+            sig_alg='ML-DSA-87',
+            fmt_ver=1
         )
 
         print("  -> Verification of empty-signature token:")
@@ -121,7 +131,9 @@ def run_demo():
             freshness_timestamp=time.time(),
             authority_reference="test",
             challenge=verifier.generate_challenge(),
-            signature="fake_sig"
+            signature="fake_sig",
+            sig_alg='ML-DSA-87',
+            fmt_ver=1
         )
         
         try:
