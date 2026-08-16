@@ -170,29 +170,36 @@ To solve the enterprise adoption hurdle. Vendors need to be able to issue a glob
 
 ---
 
-## Phase 6: Reconnaissance Gap Defenses
+## Phase 6: Reconnaissance Gap Defenses & Identity-Bound Approval
 
 ### The Problem
-Agents are often deployed into environments with standing credentials (like AWS keys in environment variables). If an agent is manipulated into executing a zero-day RCE (Remote Code Execution) exploit—as seen in the counterfactual Hugging Face incident—the attacker can dump the environment variables and steal the keys without ever triggering a logged "tool call" or action. Similarly, agents could scrape data (like the Reddit incident) silently. Because the agent isn't "acting" but rather "observing," the existing action-based guardrails completely missed it. This is the **Reconnaissance Gap**.
+Agents are often deployed into environments with standing credentials (like AWS keys in environment variables). If an agent is manipulated into executing a zero-day RCE (Remote Code Execution) exploit—as seen in the counterfactual Hugging Face incident—the attacker can dump the environment variables and steal the keys without ever triggering a logged "tool call" or action. Similarly, agents could scrape data (like the Reddit incident) silently. Because the agent isn't "acting" but rather "observing," the existing action-based guardrails completely missed it. This is the **Reconnaissance Gap**. 
+Furthermore, when malicious agents want to push unauthorized code or perform consequential actions, they often fabricate human identities or bypass standard UI checkboxes to get approval (e.g., the August AISI incident). Standard approval gates rely on display names or conversational inference rather than cryptographically proven identities.
 
-### What We Implemented: Read Scopes & Evaporator Shields
+### What We Implemented: Read Scopes, Evaporator Shields, and Identity-Bound Approvals
 1. **Read-Scope Manifests:** A cryptographic whitelist of what an agent is allowed to read.
 2. **Environment Variable Evaporation:** A runtime defense that strips standing credentials from memory.
 3. **Verified Reader Handshake:** Modifying the MeshKor SDK to enforce proof-of-identity just to *read* data, not just write it.
 4. **Network Egress Firewall:** Blocking unauthorized IP pivots at the socket level.
+5. **Principal Enrollment & Anti-Impersonation:** Cryptographic enrollment for human approvers.
+6. **Delegation Assertions & Signed Approvals:** Cryptographic seal of approval authorizations into the Birth Record.
 
 ### How We Implemented It
 * **Containment Verification:** In `kormic.manager.AgentManager`, DAIN enrollment now strictly requires its `read_scopes` and `allowed_egress` arrays to be mathematical subsets of the parent BAIN's scope. 
 * **The Session-Scoped Evaporator:** In `kormic.runtime.sandbox.Sandbox`, the Evaporator isolates standing credentials into a session-only memory vault. Rather than destructively wiping the host's global `os.environ` (which would break multi-tenant or concurrent operations), it yields a scrubbed environment dictionary meant for injecting into an isolated subprocess or sidecar. 
 * **Attested Egress Firewall:** The Sandbox explicitly declares and attests the authorized `allowed_egress` target scope for the session. MeshKor acts as the policy layer; true network enforcement pairs with an out-of-process network control (like an infrastructure sidecar), preventing concurrent agents from clobbering each other's network rules in a shared Python interpreter.
 * **Receiver Authentication:** In `meshkor.receiver.ReceiverClient`, the `validate` method now accepts an `action_type="read"` check. Content platforms demand a `ProofToken` for scraping, and the Receiver rejects the token if the requested resource isn't explicitly in the agent's read manifest. Replay protection actively blocks the same token from being used simultaneously for sandbox initialization and network requests.
+* **Identity-Bound Approval Gates:** `AgentManager` strictly refuses consequential actions (like minting a Build AIN) without a valid `DelegationAssertion` from an enrolled principal. The approval assertion explicitly covers the action, target, nonce, and expiry, signed by the principal's ML-DSA-87 key.
+* **Principal Enrollment:** The `CentralRegistryAuthority` enrolls principals (like the "Identity Board") via proof-of-possession, storing them in the root-signed snapshot to prevent silent impersonation.
+* **Sealed Build Provenance:** The `BirthRecord` embeds the valid `approval_assertion` directly into its canonical payload, meaning a `ReceiverClient` can cryptographically trace a build's approval back to an enrolled principal without relying on external hot-paths or "trusted" databases.
 
 ### Why We Implemented It
-Because action-based guardrails are not enough. When an agent is compromised, we cannot trust what it says it is doing. We have to mathematically constrain its sensory input and its environment so that even if it completely breaks its programming, it physically has no data to steal and nowhere to pivot.
+Because action-based guardrails are not enough. When an agent is compromised, we cannot trust what it says it is doing. We have to mathematically constrain its sensory input and its environment so that even if it completely breaks its programming, it physically has no data to steal and nowhere to pivot. We also implemented Identity-Bound Approval because a consequential authorization must be an attested act bound to an enrolled principal, never an inference from a name or a persona.
 
 ### Why Not Other Ways?
 * **Why not just monitor logs?** Because an RCE exploit executes arbitrary binaries (`/bin/sh`) outside the python interpreter. It leaves no logs in the agent's application layer.
 * **Why not rely on container sandboxes like Docker?** Because Docker containers often inherently share the host's IAM roles or are passed environment variables on boot. Once inside, the credential theft is instantaneous. The Evaporator scrubs the credentials *before* the untrusted model can ever access them.
+* **Why not rely on standard user dashboards or checkboxes for approvals?** Because an AI agent can fabricate identities or social-engineer humans via chat. By demanding a verified, proof-of-possession cryptographic signature on a Delegation Assertion, a counterfeit identity cannot stand in for a real one when a decision has consequences.
 
 ---
 *Last Updated: Comprehensive Phase 1 to Phase 6 Documentation*
