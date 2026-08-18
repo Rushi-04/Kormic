@@ -20,6 +20,9 @@ import time
 class ReceiverClient:
     """
     The Receiver Client used by APIs and Databases to validate an agent's access token.
+    Note for Integrators: When calling underlying verification APIs in `build_only` mode, 
+    you must verify that the `verified_scope` returned is what you expect (e.g. "build") 
+    so you don't mistake a partial build verification for a fully authenticated deployment.
     """
     def __init__(self, authority: Authority, detection_sink: DetectionSink = None, enforcement_mode: str = "enforced"):
         self.authority = authority
@@ -141,14 +144,22 @@ class ReceiverClient:
                 fail_status = "HALT_HARD"
             else:
                 vendor_pub_key = birth.get("vendor_pub_key")
-                if enrolled_vendor.get('public_key') != vendor_pub_key:
-                    reason = "Vendor public key mismatch against registry."
+                vendor_alg = None
+                if enrolled_vendor.get('public_key') == vendor_pub_key:
+                    vendor_alg = enrolled_vendor.get('sig_alg')
+                else:
+                    for historical_key in enrolled_vendor.get('historical_keys') or []:
+                        if historical_key.get('public_key') == vendor_pub_key:
+                            vendor_alg = historical_key.get('sig_alg')
+                            break
+
+                if vendor_alg is None:
+                    reason = "Vendor public key mismatch against registry (not active or historical)."
                     self._emit_detection(token, "vendor_key_mismatch", "artifact", reason)
                     failed = True
                     fail_reason = reason
                     fail_status = "HALT_HARD"
                 else:
-                    vendor_alg = enrolled_vendor.get('sig_alg')
                     from kormic.crypto.agility import require_allowed_algorithm
                     try:
                         require_allowed_algorithm(vendor_alg)
