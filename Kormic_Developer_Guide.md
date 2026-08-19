@@ -192,14 +192,37 @@ Furthermore, when malicious agents want to push unauthorized code or perform con
 * **Identity-Bound Approval Gates:** `AgentManager` strictly refuses consequential actions (like minting a Build AIN) without a valid `DelegationAssertion` from an enrolled principal. The approval assertion explicitly covers the action, target, nonce, and expiry, signed by the principal's ML-DSA-87 key.
 * **Principal Enrollment:** The `CentralRegistryAuthority` enrolls principals (like the "Identity Board") via proof-of-possession, storing them in the root-signed snapshot to prevent silent impersonation.
 * **Sealed Build Provenance:** The `BirthRecord` embeds the valid `approval_assertion` directly into its canonical payload, meaning a `ReceiverClient` can cryptographically trace a build's approval back to an enrolled principal without relying on external hot-paths or "trusted" databases.
+* **Detection Consumability:** The Sandbox integrates pluggable `DetectionSink` objects (Webhook, JSONL) with absolute `try/except` fire-and-forget guarantees. It enriches alerts with session correlation and severities. Crucially, the "Ongoing Reconnaissance" digest continuously alerts if an agent stays in a rogue loop, completely closing the "silent compromise" gap.
+* **Software-Tier Key Custody Thresholding:** Routine operations (`sign_birth`) remain rapid. However, existential root functions (`sign_root`, `generate_epoch_key`) were mathematically locked behind a Shamir `k-of-n` quorum inside the software tier. Approvals strictly require an `ML-DSA-87` signature from an enrolled holder. A strict architectural invariant was established forbidding zero-policy root operations in a production deployment.
 
 ### Why We Implemented It
-Because action-based guardrails are not enough. When an agent is compromised, we cannot trust what it says it is doing. We have to mathematically constrain its sensory input and its environment so that even if it completely breaks its programming, it physically has no data to steal and nowhere to pivot. We also implemented Identity-Bound Approval because a consequential authorization must be an attested act bound to an enrolled principal, never an inference from a name or a persona.
+Because action-based guardrails are not enough. When an agent is compromised, we cannot trust what it says it is doing. We have to mathematically constrain its sensory input and its environment so that even if it completely breaks its programming, it physically has no data to steal and nowhere to pivot. We also implemented Identity-Bound Approval because a consequential authorization must be an attested act bound to an enrolled principal, never an inference from a name or a persona. The Thresholding prevents stolen keys from destroying the fleet, and the Detection plane ensures SIEMs (Security Information and Event Management systems) actually see the attack happening.
 
 ### Why Not Other Ways?
 * **Why not just monitor logs?** Because an RCE exploit executes arbitrary binaries (`/bin/sh`) outside the python interpreter. It leaves no logs in the agent's application layer.
 * **Why not rely on container sandboxes like Docker?** Because Docker containers often inherently share the host's IAM roles or are passed environment variables on boot. Once inside, the credential theft is instantaneous. The Evaporator scrubs the credentials *before* the untrusted model can ever access them.
 * **Why not rely on standard user dashboards or checkboxes for approvals?** Because an AI agent can fabricate identities or social-engineer humans via chat. By demanding a verified, proof-of-possession cryptographic signature on a Delegation Assertion, a counterfeit identity cannot stand in for a real one when a decision has consequences.
+* **Why not rely on unauthenticated threshold logic?** Because a raw string ID check allows anyone to submit fake votes. Threshold cryptography only secures a system when each ballot is cryptographically proven to be cast by an enrolled holder.
 
 ---
-*Last Updated: Comprehensive Phase 1 to Phase 6 Documentation*
+
+## Phase 7: Vendor Key Rotation & Back Catalog Preservation
+
+### The Problem
+If a software vendor's private key is stolen, the registry must immediately revoke that key to stop the hacker from minting malicious new software builds. However, the vendor might have 5,000 legitimate enterprise AI agents already running in the world, signed by that exact key. Revoking the key would mathematically trigger the "Cascading Kill Switch," instantly destroying all 5,000 deployments globally.
+
+### What We Implemented: Dual-Signature Handoff & Historical Catalogs
+1. **Dual-Signature Rotation:** A cryptographic handshake where a vendor submits a rotation payload signed by *both* the old key and the new key.
+2. **Historical Back Catalog:** The Central Registry demotes the old key into a `historical_keys` array attached to the vendor's profile, and promotes the new key to `active`.
+3. **Agile Receiver Verification:** The edge verification engine scans the back catalog for historic matches.
+
+### How We Implemented It
+* **Secure Key Handoff:** In `CentralRegistryAuthority.rotate_vendor_key()`, the system rejects rotation unless the vendor supplies mathematical proof of possession of the *new* key, while also explicitly approving the rotation using the *old* key. 
+* **Back-Catalog Expansion:** The `VendorEnrollment` schema was expanded to securely house previous keys and their specific signature algorithms. This data replicates out to edge nodes seamlessly inside the standard `RegistrySnapshot`.
+* **Seamless Downstream Operation:** In `ReceiverClient.verify_artifact()`, when verifying a `BAIN`, the verifier checks the currently active key. If it fails, it cascades through the `historical_keys`. If a match is found, the signature is honored, preserving the lifetime of older deployments. Any *new* deployment minted after the rotation is strictly held to the active key, instantly neutralizing the stolen key's threat vector without touching the existing fleet.
+
+### Why We Implemented It
+To solve the "Total Recall" dilemma. Enterprise adoption is impossible if a single leaked key forces every hospital running your software to go offline. By preserving a back catalog, we maintain cryptographic integrity for the past while strictly locking down the future.
+
+---
+*Last Updated: Comprehensive Phase 1 to Phase 7 Documentation*
