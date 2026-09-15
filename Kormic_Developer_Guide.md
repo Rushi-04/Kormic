@@ -225,4 +225,42 @@ If a software vendor's private key is stolen, the registry must immediately revo
 To solve the "Total Recall" dilemma. Enterprise adoption is impossible if a single leaked key forces every hospital running your software to go offline. By preserving a back catalog, we maintain cryptographic integrity for the past while strictly locking down the future.
 
 ---
-*Last Updated: Comprehensive Phase 1 to Phase 7 Documentation*
+
+## Phase 8: Production Hardware Root of Trust & Control Plane
+
+### The Problem
+Software-based private keys (even when quorum-gated) are fundamentally vulnerable to memory exfiltration if the host OS is compromised. A zero-trust system requires that root operations (like global revocations) are mathematically tied to a physical human action that malware cannot forge. Additionally, relying on in-memory mock databases prevents the system from persisting across restarts or scaling to multiple nodes.
+
+### What We Implemented
+1. **FIPS 140-2 Hardware Security Modules (HSM):** Full integration with YubiKey ECDSA P-384 signature modules.
+2. **Persistent Control Plane:** Replacing in-memory variables with a persistent SQLite storage layer (`hq_kormic.db`).
+3. **Interactive Hardware-Backed Admin CLI:** A rich terminal UI for executing secure operations.
+
+### How We Implemented It
+* **APDU Hardware Integration:** We implemented `meshkor.hq_server` to require an ECDSA Challenge-Response signature directly from a YubiKey (Slot 9C) for critical actions. The system strictly enforces the `0x6982` (Security Condition Not Satisfied) APDU constraint, forcing physical PIN and Touch verification before the hardware will compute the signature.
+* **Persistent Recovery Twins:** Instead of holding agent states in volatile memory, the HQ database securely stores AES-256-GCM encrypted "Twins". During a catastrophic failure, these twins are decrypted natively in the Admin CLI via a physical hardware touch, and re-injected into the Sidecar.
+* **Revocation Fan-Out:** The `meshkor_admin.py` module manipulates the live database, allowing admins to instantly generate hardware-signed Revocation Orders which are broadcast to all global replicas.
+
+---
+
+## Phase 9: Phase 1 Governance & Cryptographic Auditing (Rounds 18 & 19)
+
+### The Problem
+A zero-trust identity system is useless if there is no accountability over *why* an agent identity was created. Security auditors need an unalterable paper trail explaining the business justification for every capability. Furthermore, critical guardrails (like the `constitution_hash`) must be mathematically proven to be tamper-proof at runtime, and the underlying cryptography must be agile enough to upgrade without breaking the ecosystem.
+
+### What We Implemented
+1. **Post-Quantum Cryptographic Agility:** Upgraded the underlying signature algorithms from Ed25519 to NIST's Post-Quantum ML-DSA-87 standard.
+2. **Rich Governance Metadata Schema:** Expanded the HQ database to enforce a strict governance tracking schema.
+3. **Permanent Rule 2 Guardrails:** Sealed the `constitution_hash` mathematically inside the birth record and built permanent test suites to block tampering.
+
+### How We Implemented It
+* **Schema Enforcement:** The `registry` and `capability_requests` tables in `hq_db.py` were expanded via safe `ALTER TABLE` migrations. Every new capability request now explicitly requires a `rationale`, `requested_by` attribution, and `outcome_ref`, transforming a simple lookup table into a strict governance record. Fake placeholders were aggressively pruned to ensure pilot data integrity.
+* **ML-DSA-87 Agility:** The `Signer` interfaces in `kormic.crypto` were abstracted away from hardcoded implementations. The `sig_alg` field is now embedded directly in the `BirthRecord` header.
+* **Tamper-Evident Guardrails (Rule 2):** The `constitution_hash` is now embedded into the `guardrails` dictionary *before* the payload is hashed and signed. If a malicious node flips a single bit in the constitution hash, the mathematical verification in `kormic/verify/engine.py` throws a `HALT_HARD` (Invalid Birth Signature) exception.
+* **Automated Guardrail Testing:** We codified these guarantees into permanent `pytest` suites (`test_constitution_hash_tamper_breaks_signature`), bringing our verification test coverage up to an airtight 164 passing tests.
+
+### Why We Implemented It
+To guarantee that the mathematical rules of the system (Rule 2) survive long after the original engineers leave. By tying the constitution hash into the cryptographic seal, we eliminate the risk of "silent drift" where an agent's guardrails are subtly relaxed over time. The rich governance metadata ensures that when a CISO asks "Why does this agent have access to the production DB?", the answer is cryptographically logged and mathematically verifiable.
+
+---
+*Last Updated: Comprehensive Phase 1 to Phase 9 Documentation (164 Passing Tests)*
