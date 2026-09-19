@@ -16,3 +16,4 @@ Kormic emits structured signals via the `DetectionSink` interface. It routes rul
 Integrate the `ReceiverClient` into your API gateway or resource server. 
 - Ensure that you use `action_type="read"` when an agent tries to scrape or query data.
 - **Artifact Verification:** When checking deployments, ensure you verify the `BAIN` (Build AIN) and its exact `artifact_digest` bound to an enrolled vendor.
+- **Verified Scope Constraint:** A caller must check `verified_scope` on a verification result and must not treat a `"build"`-scoped pass as a deployment-level pass, because build-only verification deliberately skips the head and history checks.

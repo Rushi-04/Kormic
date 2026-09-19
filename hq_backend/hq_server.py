@@ -63,7 +63,7 @@ def admin_auth(req: AdminAuthRequest):
     active_admin_sessions[session_token] = True
     return {"session_token": session_token}
 
-import meshkor.hq_db as db
+import hq_backend.hq_db as db
 
 @app.on_event("startup")
 def startup_event():
@@ -155,7 +155,7 @@ def enroll_agent(req: EnrollRequest):
     return {"ain": ain, "pedigree": pedigree_dict}
 
 def start_hq(port: int = 8080):
-    uvicorn.run("meshkor.hq_server:app", host="0.0.0.0", port=port, reload=False)
+    uvicorn.run("hq_backend.hq_server:app", host="0.0.0.0", port=port, reload=False)
 
 if __name__ == '__main__':
     start_hq()

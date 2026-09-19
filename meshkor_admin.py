@@ -241,7 +241,7 @@ def view_governance():
         c = conn.cursor()
         
         # Registry
-        c.execute("SELECT agent_class, class_ref, what_it_does, assumption, owner, shared_or_per_person, data_touched, who_may_call, status FROM registry")
+        c.execute("SELECT agent_class, class_ref, what_it_does, assumption, owner, shared_or_per_person, data_touched, who_may_call, status, confirmed_by FROM registry")
         reg_rows = c.fetchall()
         
         t1 = Table(title="Phase 1 Governance: Agent Registry")
@@ -254,12 +254,13 @@ def view_governance():
         t1.add_column("Data Touched", style="yellow")
         t1.add_column("Who May Call", style="magenta")
         t1.add_column("Status", style="green")
+        t1.add_column("Confirmed By", style="red bold")
         for r in reg_rows:
-            t1.add_row(str(r[0]), str(r[1]), str(r[2]), str(r[3]), str(r[4]), str(r[5]), str(r[6]), str(r[7]), str(r[8]))
+            t1.add_row(str(r[0]), str(r[1]), str(r[2]), str(r[3]), str(r[4]), str(r[5]), str(r[6]), str(r[7]), str(r[8]), str(r[9]) if r[9] else "PENDING")
         console.print(t1)
         
         # Capability Requests
-        c.execute("SELECT id, agent_class, requested_by, description, registry_consulted, rationale, outcome_ref, verdict FROM capability_requests")
+        c.execute("SELECT id, agent_class, requested_by, description, registry_consulted, rationale, outcome_ref, verdict, confirmed_by FROM capability_requests")
         cap_rows = c.fetchall()
         
         t2 = Table(title="Capability Requests Log")
@@ -271,8 +272,9 @@ def view_governance():
         t2.add_column("Rationale", style="yellow")
         t2.add_column("Outcome Ref", style="blue")
         t2.add_column("Verdict", style="bold red")
+        t2.add_column("Confirmed By", style="red bold")
         for r in cap_rows:
-            t2.add_row(str(r[0]), str(r[1]), str(r[2]), str(r[3]), str(r[4]), str(r[5]), str(r[6]), str(r[7]))
+            t2.add_row(str(r[0]), str(r[1]), str(r[2]), str(r[3]), str(r[4]), str(r[5]), str(r[6]), str(r[7]), str(r[8]) if r[8] else "PENDING")
         console.print(t2)
         
         conn.close()
