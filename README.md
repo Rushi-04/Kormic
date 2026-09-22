@@ -259,3 +259,88 @@ This project is now split into a **Centralized SaaS Model**: the **MeshKor HQ Se
 - **Tool:** meshkor_admin.py`n- **Location:** Runs locally on the Administrator's secure Windows laptop.
 - **Security:** Requires physical YubiKey touch to authenticate.
 - **Function:** Connects to the AWS Server over the internet to view 'Red Flag' logs and cryptographically revoke/paralyze bad AI agents instantly.
+
+
+## Developer Integration Quickstart (How to Use MeshKor in Your App)
+
+If you are a developer looking to secure your AI agents using MeshKor, follow this simple 3-step guide. MeshKor is designed to be completely non-intrusive and fail-open (meaning if MeshKor goes down, your app keeps running!).
+
+### Step 1: Install and Database Setup
+
+First, install the SDK:
+``bash
+pip install meshkor
+``
+
+Next, add a simple string column to your application's database to store the Agent Identity Number (AIN). This acts as a permanent 'license plate' for your agent.
+
+**Django Example (models.py):**
+``python
+from django.db import models
+
+class AIAgentProcess(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    status = models.CharField(max_length=20)
+    
+    # Add this line for MeshKor!
+    ain = models.CharField(max_length=120, null=True, blank=True, help_text="MeshKor Identity")
+``
+
+### Step 2: Enroll the Agent (Birth)
+
+Whenever your code creates or starts a new AI agent, you must enroll it with the MeshKor HQ to get a cryptographic passport.
+
+**Python Example:**
+``python
+from meshkor.integrations.kormic import KormicMeshKorIntegration
+
+# 1. Initialize the MeshKor SDK (It will automatically find your AWS HQ)
+meshkor = KormicMeshKorIntegration()
+
+def start_ai_agent(db_record):
+    # 2. Define what this agent is allowed to do (The Manifest)
+    manifest = {
+        "permissions": ["read_db", "call_github_api"],
+        "owner": "student_123"
+    }
+
+    # 3. Enroll the agent to get an AIN (License Plate)
+    # Note: If the HQ server is down, this safely returns None (Fail-Open)
+    ain = meshkor.enroll_agent(
+        agent_class="GitHubAnalyzer",
+        instance_ref=f"process_{db_record.id}",
+        manifest=manifest,
+        constitution_hash="abc123hash..."
+    )
+
+    # 4. Save the AIN to your database so you don't forget it!
+    db_record.ain = ain
+    db_record.save()
+    
+    print(f"Agent started securely with AIN: {ain}")
+``
+
+### Step 3: Record AI Actions (Life)
+
+Whenever your AI agent takes a sensitive action (like reading a file or calling an external API), report it to MeshKor. MeshKor will asynchronously check if the action violates the agent's permissions.
+
+**Python Example:**
+``python
+def ai_read_file(db_record, filepath):
+    # 1. Let MeshKor know what the AI is trying to do
+    # (If db_record.ain is None, MeshKor quietly ignores this)
+    meshkor.record_event(
+        ain=db_record.ain,
+        event_type="file_access",
+        details={"path": filepath}
+    )
+    
+    # 2. Continue with your normal application logic
+    with open(filepath, 'r') as f:
+        return f.read()
+``
+
+### That's it!
+You have successfully integrated MeshKor. 
+- In **Advisory Mode**, bad behavior is simply logged to the AWS Admin dashboard.
+- In **Enforced Mode**, if the admin clicks "Revoke", the ecord_event call will instantly raise a RevokedAgentException, freezing the AI in its tracks before it can do harm.
