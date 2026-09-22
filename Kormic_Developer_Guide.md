@@ -264,3 +264,36 @@ To guarantee that the mathematical rules of the system (Rule 2) survive long aft
 
 ---
 *Last Updated: Comprehensive Phase 1 to Phase 9 Documentation (164 Passing Tests)*
+
+
+## Phase 10: Production Rollout (AWS, Pip, and Django)
+
+This phase documents the final transition from a local prototype to a production-grade, multi-server SaaS architecture.
+
+### 1. Architectural Separation (The SaaS Model)
+We mathematically decoupled the system into two distinct environments:
+1. **The Server (MeshKor HQ):** The centralized brain. It holds the keys, the SQLite database (hq_kormic.db), and issues AINs. This runs on AWS.
+2. **The Client (MeshKor SDK):** A lightweight pip package. It runs inside the client's application (like Kormic Django). It is mathematically impossible for the SDK to issue its own keys. It relies entirely on HTTP requests to the AWS HQ.
+
+### 2. AWS Server Deployment (Step-by-Step)
+- **Infrastructure:** Deployed on an AWS Ubuntu 	2.medium instance.
+- **Dependencies:** Core cryptography (dilithium-py, pybloom-live, astapi, uvicorn).
+- **Process Control:** Instead of a fragile screen session, we use a professional Linux systemd daemon (meshkor-hq.service). If the server reboots or crashes, Linux automatically restarts it.
+- **Networking:** The AWS Security Group is configured to allow Custom TCP Inbound traffic on port 8080.
+
+### 3. Pip Package Publication
+The client-side code (meshkor and kormic math libraries) was packaged using setup.py and uploaded to TestPyPI. 
+- **Fail-Open Design:** The meshkor.integrations.kormic wrapper is built with a hardcoded  .2 second network timeout. If the AWS HQ server goes down, the integration instantly catches the timeout and returns None, allowing the host application to continue working without crashing.
+- **Dynamic Routing:** The SDK defaults to http://44.193.27.158:8080 (the AWS IP) but can be overridden via the MESHKOR_HQ_URL environment variable.
+
+### 4. The Django Integration Workflow
+To integrate this into the main Kormic application (or any future client):
+1. **Pip Install:** Add meshkor (from TestPyPI) to the Django equirements.txt / Dockerfile.
+2. **Database Update:** Add an in (Agent Identity Number) string column to the relevant Django model (e.g., VerificationCheck). This is a safe 
+ull=True migration.
+3. **Agent Wiring:** When Django spawns an agent, it calls meshkor.enroll_agent(), receives an AIN from AWS, and saves it to the database. All future AI actions use meshkor.record_event(ain) to log behavior back to AWS.
+
+### 5. Remote Administration & Hardware Security
+The meshkor_admin.py tool remains completely local to the administrator's Windows machine. It connects to the AWS Server via HTTP.
+- **Zero-Trust:** To execute destructive commands (like Revoking an agent), the Admin must physically insert and touch a YubiKey. The YubiKey cryptographically signs the command, and the AWS server verifies the signature before executing the kill order.
+- **Advisory Mode Logs:** In Advisory mode, bad behavior is logged to AWS but not blocked. The Admin uses the 'Audit Suspects' menu on their Windows laptop to view these logs remotely, eliminating the need to SSH into the AWS server.

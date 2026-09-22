@@ -234,3 +234,28 @@ The codebase is heavily tested. A massive unified end-to-end simulation covering
 pytest tests/ -v
 # Currently passing 164 mathematically rigorous tests.
 ```
+
+
+## MeshKor Architecture & AWS Deployment (Current State)
+
+This project is now split into a **Centralized SaaS Model**: the **MeshKor HQ Server** (running on AWS) and the **MeshKor SDK** (installed in client Django applications).
+
+### 1. The HQ Server (AWS)
+- **Location:** Hosted on a dedicated AWS EC2 Ubuntu instance (	2.medium).
+- **Current Public IP:** http://44.193.27.158:8080`n- **How it runs:** Managed professionally via a Linux systemd background service (meshkor-hq.service).
+- **Function:** It holds the Master Cryptographic Keys (protected by YubiKey Hardware Escrow). It issues Agent Identity Numbers (AINs) to approved client applications and logs all AI behavior.
+- **Code:** All server code lives in the hq_backend/ directory.
+
+### 2. The Client SDK (Pip Package)
+- **Location:** Hosted on PyPI (currently TestPyPI as meshkor==1.0.2).
+- **Function:** A lightweight, dumb sidecar. It contains no private keys. It points to the AWS HQ URL. When a Kormic AI Agent does something, this SDK wraps the API call and sends a secure log to AWS.
+- **Fail-Open Safety:** In Advisory Mode, if the AWS server crashes, the SDK has a 0.2-second timeout and fails open, meaning the host application (Kormic) will never crash just because MeshKor is down.
+
+### 3. The Django Integration (Kormic Host)
+- **Database:** The host application (e.g., Kormic Django) must add an in column to its database (e.g., the VerificationCheck model). This acts as a permanent license plate for the agent.
+- **Workflow:** Django asks AWS for an AIN -> Django saves the AIN in its DB -> Django uses that AIN for all future MeshKor tracking calls.
+
+### 4. The Admin Console
+- **Tool:** meshkor_admin.py`n- **Location:** Runs locally on the Administrator's secure Windows laptop.
+- **Security:** Requires physical YubiKey touch to authenticate.
+- **Function:** Connects to the AWS Server over the internet to view 'Red Flag' logs and cryptographically revoke/paralyze bad AI agents instantly.
