@@ -26,6 +26,18 @@ def init_db():
             blocked_at REAL
         )
     ''')
+    
+    # Table for telemetry events
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS event_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ain TEXT,
+            event_type TEXT,
+            details TEXT,
+            timestamp REAL
+        )
+    ''')
+
     # Table for Phase 1 Governance: Registry of planned agent classes
     c.execute('''
         CREATE TABLE IF NOT EXISTS registry (
@@ -222,3 +234,18 @@ def flag_suspect(ain, reason):
     c.execute('UPDATE twins SET status="suspected" WHERE ain=?', (ain,))
     conn.commit()
     conn.close()
+
+
+def log_event(ain, event_type, details):
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute('INSERT INTO event_logs (ain, event_type, details, timestamp) VALUES (?, ?, ?, ?)', (ain, event_type, json.dumps(details), time.time()))
+    conn.commit()
+    conn.close()
+
+def get_events(limit=50):
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute('SELECT ain, event_type, details, timestamp FROM event_logs ORDER BY timestamp DESC LIMIT ?', (limit,))
+    return [{'ain': r[0], 'event_type': r[1], 'details': json.loads(r[2]) if r[2] else {}, 'timestamp': r[3]} for r in c.fetchall()]
+

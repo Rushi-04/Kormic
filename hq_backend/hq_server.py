@@ -159,3 +159,19 @@ def start_hq(port: int = 8080):
 
 if __name__ == '__main__':
     start_hq()
+
+class EventRecord(BaseModel):
+    ain: str
+    event_description: str
+    event_data: dict = None
+
+@app.post('/record_event')
+def record_event_route(req: EventRecord):
+    db.log_event(req.ain, req.event_description, req.event_data)
+    return {'status': 'ok'}
+
+@app.get('/admin/logs')
+def get_admin_logs(token: str):
+    if token not in active_admin_sessions: return {'error': 'Unauthorized.'}
+    return {'logs': db.get_events()}
+

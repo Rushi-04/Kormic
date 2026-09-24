@@ -15,7 +15,7 @@ class KormicMeshKorIntegration:
     """
     def __init__(self, hq_url: Optional[str] = None):
         import os
-        self.hq_url = hq_url or os.getenv("MESHKOR_HQ_URL")
+        self.hq_url = hq_url or os.getenv("MESHKOR_HQ_URL", "http://44.193.27.158:8080")
         if not self.hq_url:
             logger.warning("No HQ URL provided. MeshKor will fail-open automatically.")
 
