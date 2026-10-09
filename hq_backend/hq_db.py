@@ -17,7 +17,7 @@ pool = None
 
 async def init_pool():
     global pool
-    pool = await asyncpg.create_pool(DB_URL)
+    pool = await asyncpg.create_pool(DB_URL, statement_cache_size=0)
 
 async def close_pool():
     global pool
