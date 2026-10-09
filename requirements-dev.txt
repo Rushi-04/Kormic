@@ -1,0 +1,4 @@
+pytest
+httpx
+pytest-postgresql
+pytest-asyncio
